@@ -61,7 +61,13 @@ async function automacao(browser: Browser, categoryPath: string): Promise<string
     console.error(`Ocorreu um erro: ${categoryPath}`, error);
     return null;
   } finally {
-    await page.close();
+    if (headless) {
+      await page.close();
+    } else {
+      setTimeout(async () => {
+        await page.close();
+      }, 5000)
+    }
   }
 }
 
