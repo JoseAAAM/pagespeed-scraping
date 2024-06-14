@@ -1,121 +1,105 @@
-import puppeteer from 'puppeteer'
+import puppeteer, { Browser, Page } from 'puppeteer';
 
-const headless = true
+const headless = true;
 
-async function automacao(categoryPath: string) {
-  const browser = await puppeteer.launch({ headless })
-  const page = await browser.newPage()
+async function launchBrowser(): Promise<Browser> {
+  return puppeteer.launch({ headless });
+}
+
+async function openPage(browser: Browser): Promise<Page> {
+  return browser.newPage();
+}
+
+async function navigateToUrl(page: Page, url: string): Promise<void> {
+  await page.goto(url);
+}
+
+const gradeGaugeSelector = '.lh-gauge__percentage'
+
+async function submitForm(page: Page, categoryPath: string): Promise<void> {
+  const inputSelector = 'input[placeholder="Enter a web page URL"]';
+  const formSelector = '.TbIHAd';
+
+  const form = await page.$(formSelector);
+
+  if (form) {
+    await page.type(inputSelector, categoryPath);
+    await form.evaluate((form) => (form as HTMLFormElement).submit());
+    await page.waitForSelector(gradeGaugeSelector, {
+      timeout: 5 * 60000
+    });
+  } else {
+    console.log('Nenhum formulário encontrado com a classe .TbIHAd.');
+    return;
+  }
+}
+
+async function extractPerformanceGrade(page: Page): Promise<string | null> {
+  const elementos = await page.$$(gradeGaugeSelector);
+
+  if (elementos.length > 0) {
+    const firstGauge = elementos[0];
+    const performanceGrade = await page.evaluate(elemento => elemento.textContent, firstGauge);
+    return performanceGrade;
+  } else {
+    console.log('Nenhum elemento encontrado com a classe lh-gauge__percentage.');
+    return null;
+  }
+}
+
+async function automacao(browser: Browser, categoryPath: string): Promise<string | null> {
+  const page = await openPage(browser);
 
   try {
-    const url =
-      'https://pagespeed.web.dev/'
-    await page.goto(url)
+    await navigateToUrl(page, 'https://pagespeed.web.dev/');
+    await submitForm(page, categoryPath);
 
-    const input = 'input[placeholder="Enter a web page URL"]'
-
-    const form = await page.$('.TbIHAd');
-
-    if (form) {
-      await page.type(input, categoryPath)
-
-      await form.evaluate(form => (form as HTMLFormElement).submit());
-
-      await page.waitForSelector('.lh-gauge__percentage', {
-        timeout: 5 * 60000
-      })
-    } else {
-      console.log('Nenhum formulário encontrado com a classe .TbIHAd.');
-    }
-
-    const elementos = await page.$$('.lh-gauge__percentage');
-
-    if (elementos.length > 0) {
-      const firstGauge = elementos[0];
-      const performanceGrade = await page.evaluate(elemento => elemento.textContent, firstGauge);
-      console.log(`${performanceGrade} ${categoryPath}`,);
-      return performanceGrade
-    } else {
-      console.log('Nenhum elemento encontrado com a classe lh-gauge__percentage.');
-    }
-
+    const performanceGrade = await extractPerformanceGrade(page);
+    console.log(`${performanceGrade} ${categoryPath}`);
+    return performanceGrade;
   } catch (error) {
-    console.error(`Ocorreu um erro: ${categoryPath}`, error)
+    console.error(`Ocorreu um erro: ${categoryPath}`, error);
+    return null;
   } finally {
-    if (headless) {
-      setTimeout(async () => {
-        await browser.close();
-      }, 3000);
-    } else {
-      await browser.close()
-    }
+    await page.close();
   }
 }
 
-async function execute(loops: number) {
-  const preview = ''
+interface Grade {
+  url: string;
+  [key: string]: string | number;
+}
 
-  const list: string[] = []
+async function execute(loops: number): Promise<void> {
+  const preview = '';
 
-  const array = Array.from({ length: loops }, (v, i) => i + 1)
+  const list: string[] = [];
 
-  let grades: { url: string, [key: string]: string | number }[] = []
+  const browser = await launchBrowser();
+  const grades: Grade[] = [];
 
-  for (const index in array) {
-    const i = Number(index)
-
+  for (let i = 0; i < loops; i++) {
     for (const link of list) {
-      const grade = await automacao(link)
+      const grade = await automacao(browser, link);
 
-      if (grades.some(item => item.url === link)) {
-        grades = grades.map(item => {
-          if (item.url === link) {
-            return { ...item, [`grade${i + 1}`]: grade ?? '' }
-          }
-          return item
-        })
+      let gradeItem = grades.find(item => item.url === link);
+      if (gradeItem) {
+        gradeItem[`grade${i + 1}`] = grade || '';
       } else {
-        grades.push({ url: link, grade1: grade ?? '' })
+        gradeItem = { url: link, [`grade${i + 1}`]: grade || '' };
+        grades.push(gradeItem);
       }
     }
   }
 
-  grades = grades.map(item => {
-    let average = 0
-    let items = 0
-
-    for(const key in item) {
-
-      if(key.includes('grade')) {
-        items = items + 1
-        average = average + Number(item[key])
-      }
-    }
-
-    average = average / items
-
-    return {
-      ...item,
-      average: average.toFixed(2)
-    }
-  })
-
-  for(const item of grades) {
-    let average = 0
-    let items = 0
-
-    for(const key in item) {
-
-      if(key.includes('grade')) {
-        items = items + 1
-        average = average + Number(item[key])
-      }
-    }
-
-    average = average / items
+  for (const item of grades) {
+    const gradeKeys = Object.keys(item).filter(key => key.includes('grade'));
+    const average = gradeKeys.reduce((sum, key) => sum + Number(item[key]), 0) / gradeKeys.length;
+    item.average = average.toFixed(2);
   }
 
-  console.log(grades)
+  await browser.close();
+  console.log(grades);
 }
 
-execute(3)
-
+execute(3);
